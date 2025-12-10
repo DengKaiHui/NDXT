@@ -1,0 +1,337 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>纳指100 市场温度计 (三维版)</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+    <style>
+        body { 
+            font-family: 'PingFang SC', 'Microsoft YaHei', sans-serif; 
+            background-color: #f8f9fa;
+            transform: scale(0.9);
+            transform-origin: top center;
+        }
+        /* 复刻图片的渐变头 */
+        .header-bg { background: linear-gradient(135deg, #2b3a8c 0%, #6b2c91 100%); }
+        /* 顶部指标统一样式 */
+        .metric-item {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            flex: 1;
+            padding: 0 10px;
+        }
+        .metric-label {
+            font-size: 15px;
+            opacity: 0.85;
+            margin-bottom: 8px;
+            white-space: nowrap;
+            font-weight: 500;
+            letter-spacing: 0.5px;
+        }
+        .metric-value {
+            font-size: 2.75rem;
+            font-weight: 800;
+            line-height: 1;
+            margin-bottom: 8px;
+            letter-spacing: -1px;
+        }
+        .metric-tag {
+            font-size: 13px;
+            background: rgba(255, 255, 255, 0.2);
+            border-radius: 6px;
+            padding: 4px 10px;
+            display: inline-block;
+            white-space: nowrap;
+            font-weight: 600;
+            letter-spacing: 0.3px;
+        }
+        .metric-divider {
+            width: 2px;
+            background: rgba(255, 255, 255, 0.2);
+            align-self: stretch;
+        }
+        /* 单元格基础样式 */
+        .cell { 
+            transition: all 0.3s ease; 
+            position: relative;
+            cursor: pointer;
+        }
+        /* 选中态样式 - 淡淡的圈选 */
+        .active-cell { 
+            font-weight: bold;
+            position: relative;
+            box-shadow: inset 0 0 0 2px rgba(107, 44, 145, 0.3);
+            background: rgba(107, 44, 145, 0.25) !important;
+        }
+        /* 左右布局容器 */
+        .main-container { display: flex; gap: 24px; max-width: 1200px; width: 100%; align-items: flex-start; }
+        .left-panel { flex-shrink: 0; margin-top: 0; }
+        .right-panel { width: 320px; flex-shrink: 0; margin-top: 0; }
+        /* 截图区域 - 固定高度，宽度按 3:4 比例计算 */
+        .share-area { 
+            background-color: #f8f9fa;
+            padding: 20px;
+            position: relative;
+            height: 1000px;
+            width: 750px;
+        }
+        /* 卡片容器 - 填满 3:4 区域 */
+        .card-container {
+            height: 100%;
+            display: flex;
+            flex-direction: column;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.1);
+            border-radius: 20px;
+            overflow: hidden;
+        }
+        /* 卡片标题区域 */
+        .card-header {
+            text-align: center;
+            padding: 18px 30px 14px;
+            background: white;
+            border-radius: 20px 20px 0 0;
+            flex-shrink: 0;
+        }
+        /* 卡片主体 - 自动填充剩余空间 */
+        .card-body {
+            flex: 1;
+            background: white;
+            display: flex;
+            flex-direction: column;
+            min-height: 0;
+            overflow: hidden;
+        }
+        /* 卡片底部 */
+        .card-footer {
+            text-align: center;
+            padding: 14px 30px 16px;
+            background: white;
+            border-radius: 0 0 20px 20px;
+            border-top: 1px solid #f3f4f6;
+            flex-shrink: 0;
+        }
+        /* 截图时移除缩放 */
+        .capturing { transform: none !important; }
+        @media (max-width: 768px) {
+            .main-container { flex-direction: column; }
+            .right-panel { width: 100%; }
+            .left-panel { max-width: 100%; }
+        }
+    </style>
+</head>
+<body class="min-h-screen flex flex-col items-center py-8 px-4">
+
+    <!-- 主容器：左右布局 -->
+    <div class="main-container">
+        
+        <!-- 左侧区域:包含标题和面板（用于截图） -->
+        <div class="left-panel">
+            <div id="shareArea" class="share-area">
+                <!-- 卡片容器 -->
+                <div class="card-container">
+                    
+                    <!-- 卡片顶部：标题区域 -->
+                    <div class="card-header">
+                        <h1 class="text-2xl font-extrabold" id="currentDate" style="background: linear-gradient(135deg, #2b3a8c 0%, #6b2c91 100%); -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text;">
+                            纳指 100 市场温度
+                        </h1>
+                    </div>
+
+                    <!-- 卡片主体：指标展示 + 决策矩阵 -->
+                    <div class="card-body">
+                        
+                        <!-- 顶部指标区 -->
+                        <div class="header-bg p-5 text-white" style="flex-shrink: 0;">
+                            <div style="display: flex; align-items: stretch; padding: 0 8px;">
+                                <!-- PE 指标 -->
+                                <div class="metric-item">
+                                    <div class="metric-label">PE (估值)</div>
+                                    <div class="metric-value" style="display: flex; align-items: baseline; justify-content: center; gap: 6px;">
+                                        <span id="dispPE">-</span>
+                                        <span id="pePercentile" class="text-xs opacity-75" style="font-weight: 400;"></span>
+                                    </div>
+                                    <div class="metric-tag" id="tagPE">等待输入</div>
+                                </div>
+                                <div class="metric-divider"></div>
+                                <!-- VIX 指标 -->
+                                <div class="metric-item">
+                                    <div class="metric-label">VIX (情绪)</div>
+                                    <div class="metric-value" id="dispVIX">-</div>
+                                    <div class="metric-tag" id="tagVIX">等待输入</div>
+                                </div>
+                                <div class="metric-divider"></div>
+                                <!-- 回撤指标 -->
+                                <div class="metric-item">
+                                    <div class="metric-label">回撤 (折扣)</div>
+                                    <div class="metric-value" id="dispDD">0%</div>
+                                    <div class="metric-tag" id="tagDD">无折扣</div>
+                                </div>
+                            </div>
+
+                            <div class="mt-4 flex flex-col items-center pb-1">
+                                <div class="text-sm opacity-90 font-medium tracking-wide">今日计划</div>
+                                <div class="text-5xl font-black tracking-wide mt-1.5 drop-shadow-lg" id="actionBigText" style="letter-spacing: 0.05em;">输入</div>
+                                <div class="text-sm bg-white/25 px-4 py-1.5 rounded-full mt-1.5 font-medium" id="actionSubText">请输入右侧参数</div>
+                            </div>
+                        </div>
+
+                        <!-- 决策矩阵 -->
+                        <div class="p-5" style="flex: 1; display: flex; flex-direction: column; min-height: 0; overflow: hidden;">
+                            <div class="flex justify-between items-center mb-3 px-1">
+                                <span class="font-bold text-gray-700 text-lg">决策矩阵</span>
+                                <div id="drawdownBadge" class="hidden text-sm bg-red-100 text-red-600 px-3 py-1.5 rounded-full font-bold animate-pulse">
+                                    🔥 触发大跌加成
+                                </div>
+                            </div>
+
+                            <div style="flex: 1; min-height: 0; overflow: hidden;">
+                                <table class="w-full text-center text-sm border-collapse">
+                                    <thead>
+                                        <tr>
+                                            <th class="p-2.5 border border-white bg-gray-100 text-gray-500 text-sm w-1/5">
+                                                PE \ VIX<br>(纵\横)
+                                            </th>
+                                            <th class="p-2.5 border border-white bg-red-500 text-white w-1/5 rounded-t-lg">
+                                                贪婪<br><span class="text-xs opacity-80">&lt;13</span>
+                                            </th>
+                                            <th class="p-2.5 border border-white bg-yellow-400 text-white w-1/5">
+                                                平稳<br><span class="text-xs opacity-80">13-18</span>
+                                            </th>
+                                            <th class="p-2.5 border border-white bg-green-500 text-white w-1/5">
+                                                恐慌<br><span class="text-xs opacity-80">18-25</span>
+                                            </th>
+                                            <th class="p-2.5 border border-white bg-green-700 text-white w-1/5 rounded-t-lg">
+                                                极恐<br><span class="text-xs opacity-80">&gt;25</span>
+                                            </th>
+                                        </tr>
+                                    </thead>
+                                    <tbody class="text-gray-700">
+                                        <tr>
+                                            <th class="p-2.5 border border-white bg-red-500 text-white text-sm">
+                                                泡沫<br><span class="opacity-70">&gt;35</span>
+                                            </th>
+                                            <td class="p-2.5 border border-gray-100 bg-red-50 cell text-sm" id="c_0_0">0份<br><span class="text-xs text-gray-400">空仓</span></td>
+                                            <td class="p-2.5 border border-gray-100 bg-orange-50 cell text-sm" id="c_0_1">0份<br><span class="text-xs text-gray-400">观望</span></td>
+                                            <td class="p-2.5 border border-gray-100 bg-yellow-50 cell text-sm" id="c_0_2">0.5份<br><span class="text-xs text-gray-400">试探</span></td>
+                                            <td class="p-2.5 border border-gray-100 bg-green-50 cell text-sm" id="c_0_3">1份<br><span class="text-xs text-gray-400">抄底</span></td>
+                                        </tr>
+                                        <tr>
+                                            <th class="p-2.5 border border-white bg-yellow-400 text-white text-sm">
+                                                偏贵<br><span class="opacity-70">30-35</span>
+                                            </th>
+                                            <td class="p-2.5 border border-gray-100 bg-orange-50 cell text-sm" id="c_1_0">0份<br><span class="text-xs text-gray-400">观望</span></td>
+                                            <td class="p-2.5 border border-gray-100 bg-yellow-50 cell text-sm" id="c_1_1">1份<br><span class="text-xs text-gray-400">正常</span></td>
+                                            <td class="p-2.5 border border-gray-100 bg-green-50 cell text-sm" id="c_1_2">2份<br><span class="text-xs text-gray-400">加仓</span></td>
+                                            <td class="p-2.5 border border-gray-100 bg-green-100 cell text-sm" id="c_1_3">3份<br><span class="text-xs text-gray-400">积极</span></td>
+                                        </tr>
+                                        <tr>
+                                            <th class="p-2.5 border border-white bg-green-500 text-white text-sm">
+                                                合理<br><span class="opacity-70">25-30</span>
+                                            </th>
+                                            <td class="p-2.5 border border-gray-100 bg-yellow-50 cell text-sm" id="c_2_0">1份<br><span class="text-xs text-gray-400">保守</span></td>
+                                            <td class="p-2.5 border border-gray-100 bg-green-50 cell text-sm" id="c_2_1">2份<br><span class="text-xs text-gray-400">定投</span></td>
+                                            <td class="p-2.5 border border-gray-100 bg-green-100 cell text-sm" id="c_2_2">3份<br><span class="text-xs text-gray-400">加仓</span></td>
+                                            <td class="p-2.5 border border-gray-100 bg-green-200 cell text-sm" id="c_2_3">5份<br><span class="text-xs text-gray-400">重仓</span></td>
+                                        </tr>
+                                        <tr>
+                                            <th class="p-2.5 border border-white bg-green-700 text-white text-sm">
+                                                低估<br><span class="opacity-70">&lt;25</span>
+                                            </th>
+                                            <td class="p-2.5 border border-gray-100 bg-green-50 cell text-sm" id="c_3_0">3份<br><span class="text-xs text-gray-400">布局</span></td>
+                                            <td class="p-2.5 border border-gray-100 bg-green-100 cell text-sm" id="c_3_1">5份<br><span class="text-xs text-gray-400">重仓</span></td>
+                                            <td class="p-2.5 border border-gray-100 bg-green-200 cell text-sm" id="c_3_2">8份<br><span class="text-xs text-gray-400">抄底</span></td>
+                                            <td class="p-2.5 border border-gray-100 bg-green-300 cell font-bold text-green-800 text-sm" id="c_3_3">10份<br><span class="text-xs">梭哈</span></td>
+                                        </tr>
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+
+                    </div>
+
+                    <!-- 卡片底部：子标题区域 -->
+                    <div class="card-footer">
+                        <p class="text-sm text-gray-500">个人复盘记录 · 不作投资建议</p>
+                    </div>
+
+                </div>
+            </div>
+        </div>
+
+        <!-- 右侧面板：输入区域 -->
+        <div class="right-panel">
+            <div class="bg-white rounded-3xl shadow-2xl p-6">
+                <h2 class="text-xl font-bold text-gray-800 mb-4 text-center">参数输入</h2>
+                
+                <div class="space-y-4">
+                    <div>
+                        <label class="text-gray-600 block mb-2 font-medium">当前价格</label>
+                        <input type="number" id="inPrice" class="w-full border-2 border-gray-200 rounded-lg p-3 focus:ring-2 ring-purple-500 outline-none transition" placeholder="如 500">
+                    </div>
+                    <div>
+                        <label class="text-gray-600 block mb-2 font-medium">52周最高</label>
+                        <input type="number" id="inHigh" class="w-full border-2 border-gray-200 rounded-lg p-3 focus:ring-2 ring-purple-500 outline-none transition" placeholder="如 520">
+                    </div>
+                    <div>
+                        <label class="text-gray-600 block mb-2 font-medium">纳指 PE</label>
+                        <input type="number" id="inPE" class="w-full border-2 border-gray-200 rounded-lg p-3 focus:ring-2 ring-purple-500 outline-none transition" placeholder="如 36.5">
+                    </div>
+                    <div>
+                        <label class="text-gray-600 block mb-2 font-medium">VIX 指数</label>
+                        <input type="number" id="inVIX" class="w-full border-2 border-gray-200 rounded-lg p-3 focus:ring-2 ring-purple-500 outline-none transition" placeholder="如 17.3">
+                    </div>
+                </div>
+
+                <div class="mt-6 pt-6 border-t border-gray-200 space-y-3">
+                    <!-- 获取实时数据按钮 -->
+                    <button onclick="fetchFromFinnhub()" class="w-full bg-gradient-to-r from-green-500 to-emerald-500 text-white py-3 rounded-lg font-bold hover:shadow-lg transition flex items-center justify-center gap-2">
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path>
+                        </svg>
+                        获取实时数据
+                    </button>
+                    
+                    <button onclick="shareImage()" class="w-full bg-gradient-to-r from-blue-500 to-cyan-500 text-white py-3 rounded-lg font-bold hover:shadow-lg transition flex items-center justify-center gap-2">
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8.684 13.342C8.886 12.938 9 12.482 9 12c0-.482-.114-.938-.316-1.342m0 2.684a3 3 0 110-2.684m0 2.684l6.632 3.316m-6.632-6l6.632-3.316m0 0a3 3 0 105.367-2.684 3 3 0 00-5.367 2.684zm0 9.316a3 3 0 105.368 2.684 3 3 0 00-5.368-2.684z"></path>
+                        </svg>
+                        复制截图
+                    </button>
+                    
+                    <!-- API Key 配置 -->
+                    <div class="pt-3 border-t border-gray-200">
+                        <button onclick="toggleApiConfig()" class="w-full text-gray-600 text-sm py-2 hover:text-purple-600 transition flex items-center justify-center gap-1">
+                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"></path>
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"></path>
+                            </svg>
+                            配置 API Key
+                        </button>
+                        <div id="apiConfigPanel" class="hidden mt-2 space-y-2">
+                            <input type="text" id="apiKeyInput" class="w-full border-2 border-gray-200 rounded-lg p-2 text-sm focus:ring-2 ring-purple-500 outline-none transition" placeholder="输入 Finnhub API Key">
+                            <button onclick="saveApiKey()" class="w-full bg-purple-600 text-white py-2 rounded-lg text-sm font-medium hover:bg-purple-700 transition">
+                                保存
+                            </button>
+                            <p class="text-xs text-gray-500 text-center">
+                                <a href="https://finnhub.io/register" target="_blank" class="text-blue-500 hover:underline">获取免费 API Key</a>
+                            </p>
+                        </div>
+                    </div>
+                    
+                    <p class="text-xs text-gray-400 text-center mt-3">数据仅供参考 · 理性投资</p>
+                </div>
+            </div>
+        </div>
+
+    </div>
+
+    <!-- 引入前端 JS 模块 -->
+    <script src="/js/api.js"></script>
+    <script src="/js/ui.js"></script>
+    <script src="/js/app.js"></script>
+</body>
+</html>

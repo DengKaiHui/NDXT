@@ -1,0 +1,213 @@
+### API 测试文件
+### 使用 VS Code 的 REST Client 插件或直接复制到 Postman/Insomnia
+
+### 配置变量
+@baseUrl = http://localhost:3000/api
+@apiKey = your_finnhub_api_key_here
+
+###############################################
+# 1. 健康检查
+###############################################
+
+### 健康检查
+GET {{baseUrl}}/health
+
+###############################################
+# 2. 获取配置
+###############################################
+
+### 获取配置信息（阈值、矩阵）
+GET {{baseUrl}}/config
+
+###############################################
+# 3. 获取市场数据（多数据源）
+###############################################
+
+### 获取市场数据（需要 API Key）
+# 数据来源：
+# - QQQ价格、52周高点：Finnhub
+# - VIX：Yahoo Finance
+# - PE、PE百分位：蛋卷基金
+GET {{baseUrl}}/market-data?apiKey={{apiKey}}
+
+### 测试 API Key 缺失情况
+GET {{baseUrl}}/market-data
+
+###############################################
+# 4. 计算投资决策
+###############################################
+
+### 正常计算（泡沫 + 平稳 = 观望）
+POST {{baseUrl}}/calculate
+Content-Type: application/json
+
+{
+  "pe": 36.5,
+  "vix": 17.3,
+  "currentPrice": 500.25,
+  "high52Week": 520.30
+}
+
+### 低估 + 极恐 = 梭哈（无回撤加成）
+POST {{baseUrl}}/calculate
+Content-Type: application/json
+
+{
+  "pe": 22.0,
+  "vix": 28.5,
+  "currentPrice": 450.00,
+  "high52Week": 455.00
+}
+
+### 低估 + 极恐 + 大回撤 = 超级梭哈（回撤加成 x2）
+POST {{baseUrl}}/calculate
+Content-Type: application/json
+
+{
+  "pe": 22.0,
+  "vix": 28.5,
+  "currentPrice": 400.00,
+  "high52Week": 520.00
+}
+
+### 合理 + 平稳 = 稳健定投
+POST {{baseUrl}}/calculate
+Content-Type: application/json
+
+{
+  "pe": 27.5,
+  "vix": 15.2,
+  "currentPrice": 490.00,
+  "high52Week": 510.00
+}
+
+### 边界测试：参数缺失
+POST {{baseUrl}}/calculate
+Content-Type: application/json
+
+{
+  "pe": 36.5,
+  "vix": 17.3
+}
+
+### 边界测试：参数类型错误
+POST {{baseUrl}}/calculate
+Content-Type: application/json
+
+{
+  "pe": "not_a_number",
+  "vix": 17.3,
+  "currentPrice": 500,
+  "high52Week": 520
+}
+
+###############################################
+# 5. 压力测试场景
+###############################################
+
+### 极端场景 1：超高 PE + 贪婪情绪 = 空仓
+POST {{baseUrl}}/calculate
+Content-Type: application/json
+
+{
+  "pe": 50.0,
+  "vix": 10.0,
+  "currentPrice": 600.00,
+  "high52Week": 605.00
+}
+
+### 极端场景 2：极低 PE + 极恐情绪 + 超大回撤
+POST {{baseUrl}}/calculate
+Content-Type: application/json
+
+{
+  "pe": 15.0,
+  "vix": 35.0,
+  "currentPrice": 350.00,
+  "high52Week": 550.00
+}
+
+###############################################
+# 6. 回撤加成测试
+###############################################
+
+### 回撤 5% - 无加成
+POST {{baseUrl}}/calculate
+Content-Type: application/json
+
+{
+  "pe": 27.0,
+  "vix": 16.0,
+  "currentPrice": 494.00,
+  "high52Week": 520.00
+}
+
+### 回撤 15% - 1.5倍加成
+POST {{baseUrl}}/calculate
+Content-Type: application/json
+
+{
+  "pe": 27.0,
+  "vix": 16.0,
+  "currentPrice": 442.00,
+  "high52Week": 520.00
+}
+
+### 回撤 25% - 2倍加成
+POST {{baseUrl}}/calculate
+Content-Type: application/json
+
+{
+  "pe": 27.0,
+  "vix": 16.0,
+  "currentPrice": 390.00,
+  "high52Week": 520.00
+}
+
+###############################################
+# 7. 决策矩阵遍历测试
+###############################################
+
+### 泡沫 + 贪婪 (0,0) = 0份 空仓
+POST {{baseUrl}}/calculate
+Content-Type: application/json
+
+{
+  "pe": 40.0,
+  "vix": 10.0,
+  "currentPrice": 500.00,
+  "high52Week": 505.00
+}
+
+### 偏贵 + 平稳 (1,1) = 1份 正常
+POST {{baseUrl}}/calculate
+Content-Type: application/json
+
+{
+  "pe": 32.0,
+  "vix": 15.0,
+  "currentPrice": 500.00,
+  "high52Week": 505.00
+}
+
+### 合理 + 恐慌 (2,2) = 3份 加仓
+POST {{baseUrl}}/calculate
+Content-Type: application/json
+
+{
+  "pe": 27.0,
+  "vix": 20.0,
+  "currentPrice": 500.00,
+  "high52Week": 505.00
+}
+
+### 低估 + 极恐 (3,3) = 10份 梭哈
+POST {{baseUrl}}/calculate
+Content-Type: application/json
+
+{
+  "pe": 22.0,
+  "vix": 30.0,
+  "currentPrice": 500.00,
+  "high52Week": 505.00
+}
