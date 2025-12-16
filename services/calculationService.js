@@ -2,6 +2,7 @@ const config = require('../config');
 
 /**
  * 市场温度计算服务
+ * 采用三维决策矩阵：PE × VIX × 回撤
  */
 class CalculationService {
   constructor() {
@@ -46,6 +47,24 @@ class CalculationService {
   }
   
   /**
+   * 根据回撤确定矩阵层级
+   * @param {number} drawdown - 回撤百分比
+   * @returns {string} 矩阵层级键名
+   */
+  getDrawdownLevel(drawdown) {
+    if (drawdown > this.config.drawdownThresholds.super) {
+      return 'superDrawdown';  // >20% 超级折扣
+    }
+    if (drawdown > this.config.drawdownThresholds.high) {
+      return 'highDrawdown';   // 10-20% 折扣机会
+    }
+    if (drawdown > this.config.drawdownThresholds.medium) {
+      return 'mediumDrawdown'; // 5-10% 小幅回撤
+    }
+    return 'lowDrawdown';      // <5% 高位运行
+  }
+  
+  /**
    * 获取 PE 标签
    */
   getPELabel(pe) {
@@ -69,29 +88,20 @@ class CalculationService {
    * 获取回撤标签
    */
   getDrawdownLabel(drawdown) {
-    if (drawdown > this.config.drawdownThresholds.double) {
+    if (drawdown > this.config.drawdownThresholds.super) {
       return { text: '超级折扣', level: 3 };
     }
-    if (drawdown > this.config.drawdownThresholds.boost) {
+    if (drawdown > this.config.drawdownThresholds.high) {
       return { text: '折扣机会', level: 2 };
     }
-    if (drawdown > 5) {
+    if (drawdown > this.config.drawdownThresholds.medium) {
       return { text: '小幅回撤', level: 1 };
     }
     return { text: '高位运行', level: 0 };
   }
   
   /**
-   * 计算回撤加成倍数
-   */
-  getDrawdownMultiplier(drawdown) {
-    if (drawdown > this.config.drawdownThresholds.double) return 2;
-    if (drawdown > this.config.drawdownThresholds.boost) return 1.5;
-    return 1;
-  }
-  
-  /**
-   * 核心计算逻辑：根据 PE、VIX、回撤计算投资份数
+   * 核心计算逻辑：根据 PE、VIX、回撤三维矩阵计算投资份数
    * @param {Object} params - { pe, vix, currentPrice, high52Week }
    * @returns {Object} 计算结果
    */
@@ -99,24 +109,21 @@ class CalculationService {
     // 1. 计算回撤
     const drawdown = this.calculateDrawdown(currentPrice, high52Week);
     
-    // 2. 确定矩阵坐标
+    // 2. 确定三维矩阵坐标
     const row = this.getPERow(pe);
     const col = this.getVIXColumn(vix);
+    const drawdownLevel = this.getDrawdownLevel(drawdown);
     
-    // 3. 获取基础份数
-    const baseUnits = this.config.matrix[row][col];
+    // 3. 从三维矩阵直接获取份数（无需乘法加成）
+    const finalUnits = this.config.matrix3D[drawdownLevel][row][col];
     
-    // 4. 应用回撤加成
-    const multiplier = this.getDrawdownMultiplier(drawdown);
-    const finalUnits = parseFloat((baseUnits * multiplier).toFixed(1));
-    
-    // 5. 生成标签
+    // 4. 生成标签
     const peLabel = this.getPELabel(pe);
     const vixLabel = this.getVIXLabel(vix);
     const drawdownLabel = this.getDrawdownLabel(drawdown);
     
-    // 6. 生成操作建议
-    const action = this.generateAction(finalUnits, row, col, multiplier);
+    // 5. 生成操作建议
+    const action = this.generateAction(finalUnits, row, col, drawdownLabel.level);
     
     return {
       // 输入数据
@@ -132,8 +139,7 @@ class CalculationService {
         drawdown: parseFloat(drawdown.toFixed(2)),
         row,
         col,
-        baseUnits,
-        multiplier,
+        drawdownLevel,
         finalUnits
       },
       
@@ -151,40 +157,52 @@ class CalculationService {
   
   /**
    * 生成操作建议文案
+   * @param {number} finalUnits - 最终份数
+   * @param {number} row - PE行索引
+   * @param {number} col - VIX列索引
+   * @param {number} drawdownLevel - 回撤等级 (0-3)
    */
-  generateAction(finalUnits, row, col, multiplier) {
-    const hasBonus = multiplier > 1;
+  generateAction(finalUnits, row, col, drawdownLevel) {
+    const hasDrawdownBonus = drawdownLevel >= 2; // 折扣机会或超级折扣
+    const isSuperDrawdown = drawdownLevel === 3;
     
     if (finalUnits === 0) {
       if (row === 0 && col === 0) {
         return { title: '空仓', subtitle: '泡沫+贪婪，风险极高' };
-      } else if (row === 0 && col === 1) {
+      } else if (row === 0) {
         return { title: '观望', subtitle: '估值过高，等待回调' };
-      } else if (row === 1 && col === 0) {
-        return { title: '观望', subtitle: '偏贵+贪婪，耐心等待' };
+      } else if (col === 0) {
+        return { title: '观望', subtitle: '市场贪婪，耐心等待' };
       } else {
         return { title: '观望', subtitle: '性价比不高，耐心等待' };
       }
     }
     
-    if (finalUnits >= 10) {
+    if (finalUnits >= 15) {
       return {
         title: '全力买入',
-        subtitle: hasBonus ? '千载难逢，大跌加成' : '黄金机会，重仓配置'
+        subtitle: isSuperDrawdown ? '历史级机会，超级折扣' : '千载难逢，重仓配置'
+      };
+    }
+    
+    if (finalUnits >= 10) {
+      return {
+        title: '大力买入',
+        subtitle: hasDrawdownBonus ? '黄金机会，回撤加持' : '优质时机，积极配置'
       };
     }
     
     if (finalUnits >= 5) {
       return {
-        title: '大力买入',
-        subtitle: hasBonus ? '优质机会，含回撤加成' : '优质时机,积极配置'
+        title: '积极买入',
+        subtitle: hasDrawdownBonus ? '好机会，含折扣加成' : '性价比高，加大力度'
       };
     }
     
     if (finalUnits >= 2) {
       return {
         title: '稳健买入',
-        subtitle: hasBonus ? '合适机会，含回撤加成' : '合适时机，定投加仓'
+        subtitle: hasDrawdownBonus ? '合适机会，含折扣加成' : '合适时机，定投加仓'
       };
     }
     
@@ -192,12 +210,12 @@ class CalculationService {
       if (row === 0 && col === 3) {
         return {
           title: '试探抄底',
-          subtitle: hasBonus ? '极恐情绪，含回撤加成' : '极恐情绪，小额试水'
+          subtitle: hasDrawdownBonus ? '极恐+折扣，小额试水' : '极恐情绪，谨慎试探'
         };
       }
       return {
         title: '谨慎买入',
-        subtitle: hasBonus ? '小额试探，含回撤加成' : '小额尝试，保守配置'
+        subtitle: hasDrawdownBonus ? '小额试探，含折扣' : '小额尝试，保守配置'
       };
     }
     
